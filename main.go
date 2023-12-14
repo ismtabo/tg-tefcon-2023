@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,10 +12,13 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Telefonica/tg-tefcon-2023/assets"
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/samber/lo"
 )
+
+var client = http.DefaultClient
 
 func main() {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
@@ -23,14 +27,15 @@ func main() {
 	defer cancel()
 
 	opts := []bot.Option{
-		bot.WithDefaultHandler(handler),
+		bot.WithMessageTextHandler("/start", bot.MatchTypeExact, handler),
 		bot.WithMessageTextHandler("/help", bot.MatchTypeExact, helpHandler),
+		bot.WithMessageTextHandler("/map", bot.MatchTypeExact, mapHandler),
 		bot.WithMessageTextHandler("/rooms", bot.MatchTypeExact, roomsHandler),
+		bot.WithMessageTextHandler("/current_events", bot.MatchTypeExact, currentEventsHandler),
 		bot.WithMessageTextHandler("/next_events", bot.MatchTypeExact, nextEventsHandler),
 	}
 
 	b, err := bot.New(token, opts...)
-
 	if err != nil {
 		panic(err)
 	}
@@ -48,7 +53,17 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 func helpHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
-		Text:   "Comandos disponibles:\n/rooms\n/next_events",
+		Text:   "Comandos disponibles:\n/rooms\n/map\n/current_events/\n/next_events",
+	})
+}
+
+func mapHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	b.SendPhoto(ctx, &bot.SendPhotoParams{
+		ChatID: update.Message.Chat.ID,
+		Photo: &models.InputFileUpload{
+			Filename: "map.jpg",
+			Data:     bytes.NewReader(assets.Map),
+		},
 	})
 }
 
@@ -64,7 +79,11 @@ func roomsHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 	txt := ""
 	for _, room := range rooms {
-		txt += room.Name + "\n"
+		txt += room.Name
+		if room.Occupancy > 0 {
+			txt += fmt.Sprintf(" (%d %% of %d)", room.Occupancy, room.Capacity)
+		}
+		txt += "\n"
 	}
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
@@ -94,7 +113,6 @@ func getRooms() ([]Room, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := http.DefaultClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -204,7 +222,6 @@ func getBasicInfo() ([]BasicInfoElement, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := http.DefaultClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -220,6 +237,42 @@ func getBasicInfo() ([]BasicInfoElement, error) {
 func (a BasicInfo) Len() int           { return len(a) }
 func (a BasicInfo) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a BasicInfo) Less(i, j int) bool { return a[i].StartDateTime < a[j].StartDateTime }
+
+func getCurrentEvents() ([]BasicInfoElement, error) {
+	basicInfo, err := getBasicInfo()
+	if err != nil {
+		return nil, err
+	}
+	currentEvents := lo.Filter(basicInfo, func(info BasicInfoElement, _index int) bool {
+		return info.IsActive
+	})
+	return currentEvents, nil
+}
+
+func currentEventsHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
+	currentEvents, err := getCurrentEvents()
+	if err != nil {
+		slog.Error("Error getting current events: %v", err)
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Ups, algo falló. ¡Qué chopecha!",
+		})
+		return
+	}
+	txt := "Eventos en curso:\n"
+	for _, info := range currentEvents {
+		txt += fmt.Sprintf("- %s", info.Event.Name)
+		if info.MeetingRoom != nil {
+			txt += fmt.Sprintf(" en %s", info.MeetingRoom.Name)
+			txt += fmt.Sprintf(" (%d %% of %d)", info.MeetingRoom.Occupancy, info.MeetingRoom.Capacity)
+		}
+		txt += "\n"
+	}
+	b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: update.Message.Chat.ID,
+		Text:   txt,
+	})
+}
 
 func getNextEvents() ([]BasicInfoElement, error) {
 	basicInfo, err := getBasicInfo()
