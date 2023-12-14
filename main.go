@@ -259,6 +259,13 @@ func currentEventsHandler(ctx context.Context, b *bot.Bot, update *models.Update
 		})
 		return
 	}
+	if len(currentEvents) == 0 {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "No hay eventos en curso",
+		})
+		return
+	}
 	txt := "Eventos en curso:\n"
 	for _, info := range currentEvents {
 		txt += fmt.Sprintf("- %s", info.Event.Name)
@@ -294,6 +301,9 @@ func getNextEvents() ([]BasicInfoElement, error) {
 		return time.Now().Before(ts)
 	})
 	sort.Strings(nextSlots)
+	if len(nextSlots) == 0 {
+		return []BasicInfoElement{}, nil
+	}
 	nextSlot := nextSlots[0]
 	nextEvents := eventsBySlot[nextSlot]
 	return nextEvents, nil
@@ -306,6 +316,13 @@ func nextEventsHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
 			Text:   "Ups, algo falló. ¡Qué chopecha!",
+		})
+		return
+	}
+	if len(nextEvents) == 0 {
+		b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "No hay próximos eventos",
 		})
 		return
 	}
