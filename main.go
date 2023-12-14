@@ -53,7 +53,7 @@ func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 func helpHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: update.Message.Chat.ID,
-		Text:   "Comandos disponibles:\n/rooms\n/map\n/current_events/\n/next_events",
+		Text:   "Comandos disponibles:\n/rooms\n/map\n/current_events\n/next_events",
 	})
 }
 
